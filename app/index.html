@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Document</title>
+</head>
+
+<body>
+    <input type="text" name="url" value="" id="input">
+    <div>"host"+"cmsys/ajaxGetNewsItem"</div>
+    <button id="startBtn">開始擷取</button>
+    <div>處理程序:
+        <div id="showStatus"></div>
+    </div>
+    <ul id="errorRequest" style="color:red"></ul>
+</body>
+<script>
+const {
+    ipcRenderer
+} = require('electron');
+const webshot = require('./lib/webshot');
+const dialog = require('electron').remote.dialog;
+const fs = require('fs');
+const request = require('request');
+const $ = require('jquery');
+
+let showStatus = $('#showStatus');
+const urlInput = $('#input');
+const errorRequest = $('#errorRequest');
+
+$('#startBtn').click((event) => {
+        event.preventDefault();
+
+        let url = urlInput.val();
+        if (url == '') {
+            return false
+        }
+
+        //http://edoma.acsite.org/community/cmsys/ajaxGetNewsItem
+
+        dialog.showSaveDialog(function(_filename) {
+            if (_filename === undefined) {
+                console.log("You didn't save the file");
+                return;
+            }
+            parserInit(_filename, url);
+        })
+
+    })
+
+let prcessCount = 0;
+let currentProcessCount = 0
+
+let options = {
+    shotSize: {
+        width: 'window',
+        height: 'all'
+    },
+    defaultWhiteBackground: true
+}
+
+let arrRequest = [];
+
+ipcRenderer.on('url', (event, data) => {
+    urlInput.val(data)
+})
+
+function parserInit(fileName, url) {
+
+    prcessCount = 0;
+    currentProcessCount = 0;
+    arrRequest = [];
+    errorRequest.html("");
+
+    $.ajax({
+        url: url,
+        dataType: "json",
+        success: (data) => {
+            console.log(data);
+            ipcRenderer.send('save url', url);
+            getDataStart(data);
+        },
+        error: (xhr) => {
+            showStatus.html("<div style='color:red'>網址錯誤</div>")
+        }
+    })
+
+    function getDataStart(resource) {
+        for (let i = 0; i < resource.length; i++) {
+
+            prcessCount++;
+
+            let fname = fileName + i + ".png";
+            if (resource[i].type == "page") {
+
+                webshot(resource[i].url, fname, options, function(err) {
+                    if (err) {
+                        console.log(err)
+                    };
+                    runP('page');
+                })
+
+            } else {
+                download(resource[i].url, fname, () => {                    
+                    runP('img');
+                });
+            }
+        }
+    }
+}
+
+function runP(flag) {
+    console.log(flag);
+    currentProcessCount++;
+    showStatus.html(`${currentProcessCount}/${prcessCount}`);
+
+    if (currentProcessCount == prcessCount) {
+        showStatus.html(`<div style="color:blue">擷取完成</div>`);
+
+        for(let i =0;i<arrRequest.length;i++){
+            errorRequest.append(`<li>${arrRequest[i]}</li>`); 
+        }
+
+        return
+    }
+
+    
+}
+
+
+var download = function(uri, filename, callback) {
+    request.head(uri, function(err, res, body) {
+        if (err) return console.log(err);
+        console.log('content-type:', res.headers['content-type']);
+        console.log('content-length:', res.headers['content-length']);
+
+        if (res.headers['content-type'] == "image/jpeg" || res.headers['content-type'] == "image/png") {
+            request(uri).pipe(fs.createWriteStream(filename)).on('close', callback);
+        } else {
+            arrRequest.push(`${uri}:無效圖片網址`);
+            callback();
+        }
+
+         
+
+        
+    });
+};
+
+</script>
+
+</html>
+
